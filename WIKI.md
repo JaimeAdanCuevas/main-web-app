@@ -12,6 +12,17 @@ Eso es todo. El script crea todos los archivos de configuración, genera secreto
 
 La primera vez tarda más porque Docker descarga e instala dependencias. Las siguientes veces es rápido.
 
+Opciones del script de inicio:
+
+```bash
+./start.sh --rebuild
+./start.sh --mode full
+./start.sh --mode lite --nn-host http://192.168.1.50:8080
+```
+
+- `--mode full`: levanta también `neural-network-api` localmente.
+- `--mode lite`: no levanta inferencia local; usa un host externo para `NN_API_HOST`.
+
 ---
 
 ## URLs de acceso
@@ -154,6 +165,36 @@ cd main-web-app
 cd main-web-app
 ./start.sh --rebuild
 ```
+
+---
+
+## Modo Raspberry
+
+Si quieres usar Raspberry con menos carga, usa `lite` y deja la inferencia en otra máquina.
+
+### Perfil recomendado en Raspberry (lite)
+
+```bash
+cd main-web-app
+./start.sh --mode lite --nn-host http://IP_DEL_SERVIDOR_IA:8080
+```
+
+Esto levanta en Raspberry:
+- webclient
+- flask_api
+- postgres
+- s3/minio
+
+Y usa la inferencia remota en `NN_API_HOST`.
+
+### Perfil completo en Raspberry (full)
+
+```bash
+cd main-web-app
+./start.sh --mode full --rebuild
+```
+
+Usa este perfil solo si tu Raspberry tiene recursos suficientes (ideal Pi 5 / 8GB).
 
 ---
 

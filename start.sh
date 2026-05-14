@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NeuroBerry - Script de inicio completo
-# Uso: ./start.sh [--rebuild]
+# Uso: ./start.sh [--rebuild] [--mode full|lite] [--nn-host http://IP:8080]
 set -euo pipefail
 
 ROOT_MAIN="$(cd "$(dirname "$0")" && pwd)"
@@ -9,7 +9,32 @@ COMPOSE_MAIN="$ROOT_MAIN/docker-compose.dev.yml"
 COMPOSE_NN="$ROOT_NN/docker-composer.dev.yaml"
 
 REBUILD=false
-for arg in "$@"; do [[ "$arg" == "--rebuild" ]] && REBUILD=true; done
+MODE="full"
+NN_HOST_OVERRIDE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rebuild)
+      REBUILD=true
+      shift
+      ;;
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    --nn-host)
+      NN_HOST_OVERRIDE="$2"
+      shift 2
+      ;;
+    *)
+      red "Argumento no reconocido: $1"
+      ;;
+  esac
+done
+
+if [[ "$MODE" != "full" && "$MODE" != "lite" ]]; then
+  red "Modo inválido: $MODE. Usa --mode full o --mode lite"
+fi
 
 # ─── Colores ──────────────────────────────────────────────────────────────────
 green()  { printf "\033[32m✔  %s\033[0m\n" "$1"; }
@@ -28,6 +53,11 @@ wait_http() {
     sleep $delay
   done
   return 1
+}
+
+extract_env_value() {
+  local key="$1" file="$2"
+  grep "^${key}=" "$file" | cut -d= -f2-
 }
 
 bootstrap_minio() {
@@ -119,7 +149,20 @@ sed -i "s|^S3_SECRET_KEY=.*|S3_SECRET_KEY=$S3_SEC|" "$API_ENV"
 sed -i "s|^DB_NAME=.*|DB_NAME=$(grep '^DB_NAME=' "$ROOT_MAIN/.env" | cut -d= -f2)|" "$API_ENV"
 sed -i "s|^DB_USER=.*|DB_USER=$(grep '^DB_USER=' "$ROOT_MAIN/.env" | cut -d= -f2)|" "$API_ENV"
 sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$(grep '^DB_USER_PASSWORD=' "$ROOT_MAIN/.env" | cut -d= -f2)|" "$API_ENV"
-sed -i "s|^NN_API_HOST=.*|NN_API_HOST=http://host.docker.internal:8080|" "$API_ENV"
+
+if [[ "$MODE" == "full" ]]; then
+  sed -i "s|^NN_API_HOST=.*|NN_API_HOST=http://host.docker.internal:8080|" "$API_ENV"
+else
+  if [[ -n "$NN_HOST_OVERRIDE" ]]; then
+    sed -i "s|^NN_API_HOST=.*|NN_API_HOST=$NN_HOST_OVERRIDE|" "$API_ENV"
+  fi
+
+  CURRENT_NN_HOST=$(extract_env_value "NN_API_HOST" "$API_ENV")
+  if [[ -z "$CURRENT_NN_HOST" || "$CURRENT_NN_HOST" == "http://host.docker.internal:8080" || "$CURRENT_NN_HOST" == *"<host_ip>"* ]]; then
+    red "En modo lite debes indicar --nn-host http://IP:8080 o configurar NN_API_HOST en api-brain-mapper/.env"
+  fi
+fi
+
 grep -q '^extra_hosts\|host.docker.internal' "$API_ENV" 2>/dev/null || true
 
 green "Variables API principal listas"
@@ -135,23 +178,27 @@ fi
 green "Variables cliente web listas"
 
 # ─── 5. .env de la API de inferencia ─────────────────────────────────────────
-yellow "Configurando variables de entorno (API de inferencia)..."
+if [[ "$MODE" == "full" ]]; then
+  yellow "Configurando variables de entorno (API de inferencia)..."
 
-NN_ENV="$ROOT_NN/.env"
-if [[ ! -f "$NN_ENV" ]]; then
-  cp "$ROOT_NN/.env_template" "$NN_ENV"
-  info ".env de inferencia creado desde template"
+  NN_ENV="$ROOT_NN/.env"
+  if [[ ! -f "$NN_ENV" ]]; then
+    cp "$ROOT_NN/.env_template" "$NN_ENV"
+    info ".env de inferencia creado desde template"
+  fi
+
+  # Sincronizar NN_API_SECRET_KEY con el valor generado en la API principal
+  NN_SECRET=$(grep '^NN_API_SECRET_KEY=' "$API_ENV" | cut -d= -f2)
+  sed -i "s|^SECRET_KEY_TOKENS=.*|SECRET_KEY_TOKENS=$NN_SECRET|" "$NN_ENV"
+
+  if ! grep -q '^MODEL_YAML_PATH=.\+' "$NN_ENV" 2>/dev/null; then
+    sed -i "s|^MODEL_YAML_PATH=.*|MODEL_YAML_PATH=/app/app/models/my_dataset.yaml|" "$NN_ENV"
+  fi
+
+  green "Variables inferencia listas"
+else
+  yellow "Modo lite: se omite configuración local de API de inferencia"
 fi
-
-# Sincronizar NN_API_SECRET_KEY con el valor generado en la API principal
-NN_SECRET=$(grep '^NN_API_SECRET_KEY=' "$API_ENV" | cut -d= -f2)
-sed -i "s|^SECRET_KEY_TOKENS=.*|SECRET_KEY_TOKENS=$NN_SECRET|" "$NN_ENV"
-
-if ! grep -q '^MODEL_YAML_PATH=.\+' "$NN_ENV" 2>/dev/null; then
-  sed -i "s|^MODEL_YAML_PATH=.*|MODEL_YAML_PATH=/app/app/models/my_dataset.yaml|" "$NN_ENV"
-fi
-
-green "Variables inferencia listas"
 
 # ─── 6. Archivos de log ───────────────────────────────────────────────────────
 yellow "Preparando archivos de log..."
@@ -159,16 +206,20 @@ LOG_PATH=$(grep '^FLASK_LOGFILE_PATH=' "$ROOT_MAIN/.env" | cut -d= -f2)
 touch "$LOG_PATH" 2>/dev/null && green "Log Flask: $LOG_PATH" || \
   info "No se pudo crear $LOG_PATH (no crítico)"
 
-# ─── 7. Iniciar stack de inferencia ──────────────────────────────────────────
-yellow "Iniciando API de inferencia (neural-network-api)..."
-mkdir -p "$ROOT_NN/models/weights" "$ROOT_NN/models/temp_configs"
-
 BUILD_FLAG=""
 $REBUILD && BUILD_FLAG="--build"
 
-cd "$ROOT_NN"
-docker compose -f "$COMPOSE_NN" up -d $BUILD_FLAG
-green "API de inferencia iniciada"
+# ─── 7. Iniciar stack de inferencia ──────────────────────────────────────────
+if [[ "$MODE" == "full" ]]; then
+  yellow "Iniciando API de inferencia (neural-network-api)..."
+  mkdir -p "$ROOT_NN/models/weights" "$ROOT_NN/models/temp_configs"
+
+  cd "$ROOT_NN"
+  docker compose -f "$COMPOSE_NN" up -d $BUILD_FLAG
+  green "API de inferencia iniciada"
+else
+  yellow "Modo lite: no se levanta neural-network-api local"
+fi
 
 # ─── 8. Iniciar stack principal ───────────────────────────────────────────────
 yellow "Iniciando stack principal (main-web-app)..."
@@ -192,14 +243,30 @@ wait_http "http://localhost:5000/" && green "API principal disponible" || \
 
 # ─── 11. Healthcheck final ───────────────────────────────────────────────────
 printf "\n"
-"$ROOT_MAIN/healthcheck.sh" || true
+if [[ "$MODE" == "full" ]]; then
+  "$ROOT_MAIN/healthcheck.sh" || true
+else
+  yellow "Healthcheck modo lite (servicios locales + endpoint NN remoto)..."
+  for url in "http://localhost:3003" "http://localhost:5000/" "http://localhost:9001"; do
+    code=$(curl -sS -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+    printf "  %-38s HTTP %s\n" "$url" "$code"
+  done
+  REMOTE_NN_HOST=$(extract_env_value "NN_API_HOST" "$API_ENV")
+  code=$(curl -sS -o /dev/null -w "%{http_code}" "$REMOTE_NN_HOST/health" 2>/dev/null || echo "000")
+  printf "  %-38s HTTP %s\n" "$REMOTE_NN_HOST/health" "$code"
+fi
 
 # ─── Resumen ─────────────────────────────────────────────────────────────────
 printf "\n\033[1mAcceso rápido:\033[0m\n"
+printf "  %-25s %s\n" "Modo de ejecución"   "$MODE"
 printf "  %-25s %s\n" "Aplicación Web"     "http://localhost:3003"
 printf "  %-25s %s\n" "API Principal"      "http://localhost:5000"
 printf "  %-25s %s\n" "MinIO Consola"      "http://localhost:9001"
-printf "  %-25s %s\n" "API Inferencia"     "http://localhost:8080/health"
+if [[ "$MODE" == "full" ]]; then
+  printf "  %-25s %s\n" "API Inferencia"     "http://localhost:8080/health"
+else
+  printf "  %-25s %s\n" "API Inferencia"     "$(extract_env_value "NN_API_HOST" "$API_ENV")/health"
+fi
 printf "\n\033[1mCredenciales por defecto:\033[0m\n"
 printf "  %-25s %s\n" "Web (email)"        "admin@gmail.com"
 printf "  %-25s %s\n" "Web (contraseña)"   'Pass$612345'

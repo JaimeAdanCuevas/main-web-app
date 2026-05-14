@@ -22,6 +22,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     // Allow LAN/IP access in development when the app runs in Docker.
-    allowedHosts: true
+    allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://host.docker.internal:5000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      }
+    }
   }
 })

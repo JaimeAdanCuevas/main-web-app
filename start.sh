@@ -172,9 +172,12 @@ yellow "Configurando variables de entorno (cliente web)..."
 
 WEB_ENV="$ROOT_MAIN/webclient/.env"
 if [[ ! -f "$WEB_ENV" ]]; then
-  echo "VITE_API_BASE_URL=http://localhost:5000" > "$WEB_ENV"
+  echo "VITE_API_BASE_URL=/api" > "$WEB_ENV"
   info "webclient/.env creado"
 fi
+
+# Usar proxy local de Vite para evitar errores de CORS/localhost al acceder por IP.
+sed -i "s|^VITE_API_BASE_URL=.*|VITE_API_BASE_URL=/api|" "$WEB_ENV"
 green "Variables cliente web listas"
 
 # ─── 5. .env de la API de inferencia ─────────────────────────────────────────

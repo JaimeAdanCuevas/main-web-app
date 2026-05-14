@@ -203,8 +203,8 @@ Usa este perfil solo si tu Raspberry tiene recursos suficientes (ideal Pi 5 / 8G
 Si tu máquina usa proxy (ej. red Intel), expórtalo antes de ejecutar `start.sh`:
 
 ```bash
-export http_proxy="http://proxy-dmz.intel.com:912"
-export https_proxy="http://proxy-dmz.intel.com:912"
+export http_proxy="http://proxy-intel.proxy.com:822"
+export https_proxy="http://proxy-intel.proxy.com:822"
 ./start.sh
 ```
 

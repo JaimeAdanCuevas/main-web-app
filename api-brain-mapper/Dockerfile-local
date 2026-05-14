@@ -3,6 +3,17 @@ FROM python:3.11
 
 WORKDIR /app
 
+ARG RASP
+ARG https_proxy
+ARG http_proxy
+ENV RASP ${RASP}
+ENV https_proxy ${https_proxy}
+ENV http_proxy ${http_proxy}
+ENV no_proxy="127.0.0.1,localhost,intel.com"
+
+# Note: proxy is passed in via build ARGs only when the host has it set.
+# No hardcoded proxy values are written here so this builds with or without proxy.
+
 # Install OS dependencies
 RUN apt-get update -y
 RUN apt-get install -y gcc libpq-dev

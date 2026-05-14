@@ -6,10 +6,16 @@ load_dotenv()
 
 
 def getMinioClient():
-    s3LiveBaseUrl = os.getenv('S3_LIVE_BASE_URL').rstrip('/')  # Assuming the URL is in the format 'https://example.com/bucket'
-    parsed_base = urlparse(s3LiveBaseUrl)  # Parse the URL to get only the host and port
-    host = parsed_base.hostname
-    port = parsed_base.port if parsed_base.port else (443 if parsed_base.scheme == 'https' else 80)  # Make sure there's a port otherwise set defaults
+    # Prefer container-internal endpoint for service-to-service communication.
+    host = os.getenv('S3_HOST')
+    port = os.getenv('S3_PORT')
+
+    if not host:
+        s3LiveBaseUrl = os.getenv('S3_LIVE_BASE_URL').rstrip('/')
+        parsed_base = urlparse(s3LiveBaseUrl)
+        host = parsed_base.hostname
+        port = parsed_base.port if parsed_base.port else (443 if parsed_base.scheme == 'https' else 80)
+
     access_key = os.getenv('S3_ACCESS_KEY')
     secret_key = os.getenv('S3_SECRET_KEY')
     return Minio(

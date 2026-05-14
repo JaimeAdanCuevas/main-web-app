@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS, cross_origin
 from flask_migrate import Migrate
 from .database.dbConnection import db
@@ -90,6 +90,20 @@ def create_app():
     app.register_blueprint(users)
     app.register_blueprint(admin)
     app.register_blueprint(metrics)
+
+    @app.get("/")
+    def root_status():
+        return (
+            jsonify(
+                {
+                    "service": "NeuroBerry API",
+                    "status": "ok",
+                    "env": os.getenv("ENV_MODE", "development"),
+                    "message": "API is running",
+                }
+            ),
+            200,
+        )
 
     # Setup cors policies
     app.config["CORS_EXPOSE_HEADERS"] = ["Content-Type"]

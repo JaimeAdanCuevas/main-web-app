@@ -4,6 +4,10 @@ services:
     build:
       context: ./webclient
       dockerfile: Dockerfile-dev
+      args:
+        RASP: "yes"
+        https_proxy: "${https_proxy:-}"
+        http_proxy: "${http_proxy:-}"
     volumes:
       - ./webclient:/app
       - node_modules_vue:/app/node_modules
@@ -12,7 +16,7 @@ services:
     environment:
       - NODE_ENV=production
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD-SHELL", "ps -ef | grep -q '[v]ite --host 0.0.0.0'"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -57,11 +61,24 @@ services:
     build:
      context: ./api-brain-mapper
      dockerfile: Dockerfile-local
+     args:
+        RASP: "yes"
+        https_proxy: "${https_proxy:-}"
+        http_proxy: "${http_proxy:-}"
     container_name: flask_app
     restart: unless-stopped
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - NO_PROXY=localhost,127.0.0.1,s3,postgres,host.docker.internal,flask_app,main-web-app-s3-1
+      - no_proxy=localhost,127.0.0.1,s3,postgres,host.docker.internal,flask_app,main-web-app-s3-1
     volumes:
       - ./api-brain-mapper/:/app
       - ${FLASK_LOGFILE_PATH}:/var/log/flask-errors.log
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5000:5000"
     depends_on:
@@ -74,6 +91,12 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - NO_PROXY=s3,localhost,127.0.0.1
+      - no_proxy=s3,localhost,127.0.0.1
     volumes:
       - ./setup-minio.sh:/setup-minio.sh
       - ./minio-policy.json:/workspace/minio-policy.json
